@@ -1,0 +1,395 @@
+{% comment %}
+  Section: Cart Drawer
+  Version: Dawn Edition
+  Compatible with: Shopify Dawn Theme (v14+)
+  Author: John Venedick Natividad
+  GitHub: https://github.com/jaynatividad1489
+
+  Dawn conventions used:
+  - color_scheme setting
+  - Dawn's button classes (.button, .button--primary, .button--secondary)
+  - Dawn's .visually-hidden utility
+  - Dawn's .loading-overlay__spinner pattern
+  - Dawn's cart:refresh event dispatch
+  - Dawn's customElements.define() Web Component pattern
+  - Dawn's icon snippets (icon-close, icon-cart, icon-minus, icon-plus)
+  - page-width for overlay
+  - Accessibility: focus trap, ARIA live regions, keyboard nav
+
+  Features:
+  - Slide-in drawer from right
+  - AJAX add/remove/update (no page reload)
+  - Quantity +/- controls with debounce
+  - Remove item with undo toast
+  - Free shipping progress bar
+  - Upsell product recommendations
+  - Cart note field
+  - Empty cart state with CTA
+  - Loading/spinner states per line item
+  - Error handling (out of stock, network errors)
+  - Keyboard accessible + focus trap
+  - Mobile responsive
+{% endcomment %}
+
+{{ 'cart-drawer.css' | asset_url | stylesheet_tag }}
+
+<cart-drawer
+  class="cart-drawer"
+  id="CartDrawer"
+  aria-modal="true"
+  aria-label="{{ 'sections.cart.title' | t }}"
+  role="dialog"
+  data-free-shipping-threshold="{{ section.settings.free_shipping_threshold | times: 100 }}"
+  data-currency="{{ cart.currency.iso_code }}"
+>
+
+  {%- comment %} Overlay {%- endcomment %}
+  <div
+    class="cart-drawer__overlay"
+    id="CartDrawerOverlay"
+    aria-hidden="true"
+    tabindex="-1"
+  ></div>
+
+  {%- comment %} Drawer Panel {%- endcomment %}
+  <div
+    class="cart-drawer__panel color-{{ section.settings.color_scheme }} gradient"
+    id="CartDrawerPanel"
+    tabindex="-1"
+  >
+
+    {%- comment %} ── HEADER ── {%- endcomment %}
+    <div class="cart-drawer__header">
+      <h2 class="cart-drawer__heading h3">
+        {{ 'sections.cart.title' | t }}
+        <span class="cart-drawer__count" id="CartDrawerCount">
+          ({{ cart.item_count }})
+        </span>
+      </h2>
+      <button
+        class="cart-drawer__close button button--tertiary"
+        id="CartDrawerClose"
+        type="button"
+        aria-label="{{ 'accessibility.close' | t }}"
+        aria-controls="CartDrawer"
+        aria-expanded="true"
+      >
+        {%- render 'icon-close' -%}
+      </button>
+    </div>
+
+    {%- comment %} ── FREE SHIPPING PROGRESS BAR ── {%- endcomment %}
+    {%- if section.settings.show_free_shipping_bar and section.settings.free_shipping_threshold > 0 -%}
+      {%- assign threshold_cents = section.settings.free_shipping_threshold | times: 100 -%}
+      {%- assign progress = cart.total_price | times: 100 | divided_by: threshold_cents -%}
+      {%- if progress > 100 -%}{%- assign progress = 100 -%}{%- endif -%}
+
+      <div
+        class="cart-drawer__shipping-bar"
+        id="CartShippingBar"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {%- if cart.total_price >= threshold_cents -%}
+          <p class="cart-drawer__shipping-msg cart-drawer__shipping-msg--success">
+            🎉 {{ 'sections.cart.free_shipping_reached' | t }}
+          </p>
+        {%- else -%}
+          {%- assign remaining = threshold_cents | minus: cart.total_price | money -%}
+          <p class="cart-drawer__shipping-msg">
+            {{ 'sections.cart.free_shipping_remaining_html' | t: remaining: remaining }}
+          </p>
+        {%- endif -%}
+        <div class="cart-drawer__shipping-track" role="progressbar" aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100">
+          <div
+            class="cart-drawer__shipping-fill"
+            id="CartShippingFill"
+            style="width: {{ progress }}%;"
+          ></div>
+        </div>
+      </div>
+    {%- endif -%}
+
+    {%- comment %} ── CART BODY ── {%- endcomment %}
+    <div
+      class="cart-drawer__body"
+      id="CartDrawerBody"
+      aria-live="polite"
+      aria-atomic="false"
+    >
+
+      {%- if cart.item_count > 0 -%}
+
+        {%- comment %} Line Items {%- endcomment %}
+        <form
+          action="{{ routes.cart_url }}"
+          id="CartDrawerForm"
+          method="post"
+          novalidate
+        >
+          <ul
+            class="cart-drawer__items"
+            id="CartDrawerItems"
+            role="list"
+            aria-label="{{ 'sections.cart.items_label' | t }}"
+          >
+            {%- for item in cart.items -%}
+              {%- render 'cart-drawer-product', item: item, index: forloop.index -%}
+            {%- endfor -%}
+          </ul>
+        </form>
+
+        {%- comment %} Upsell Section {%- endcomment %}
+        {%- if section.settings.show_upsell and section.settings.upsell_collection != blank -%}
+          {%- assign upsell_collection = collections[section.settings.upsell_collection] -%}
+          {%- assign cart_product_ids = cart.items | map: 'product_id' -%}
+          {%- assign upsell_products = upsell_collection.products | where: 'available', true -%}
+
+          {%- comment %} Filter out products already in cart {%- endcomment %}
+          {%- assign shown_upsells = 0 -%}
+          {%- for product in upsell_products -%}
+            {%- unless cart_product_ids contains product.id -%}
+              {%- if shown_upsells == 0 -%}
+                <div class="cart-drawer__upsell" id="CartUpsell">
+                  <p class="cart-drawer__upsell-heading caption-with-letter-spacing">
+                    {{ section.settings.upsell_heading | default: 'You might also like' | escape }}
+                  </p>
+                  <div class="cart-drawer__upsell-grid" id="CartUpsellGrid">
+              {%- endif -%}
+
+              {%- if shown_upsells < section.settings.upsell_count -%}
+                {%- render 'cart-upsell-product', product: product -%}
+                {%- assign shown_upsells = shown_upsells | plus: 1 -%}
+              {%- endif -%}
+            {%- endunless -%}
+          {%- endfor -%}
+
+          {%- if shown_upsells > 0 -%}
+              </div>
+            </div>
+          {%- endif -%}
+        {%- endif -%}
+
+        {%- comment %} Cart Note {%- endcomment %}
+        {%- if section.settings.show_cart_note -%}
+          <div class="cart-drawer__note">
+            <details class="cart-drawer__note-details">
+              <summary class="cart-drawer__note-summary link">
+                {{ 'sections.cart.note' | t }}
+                {%- render 'icon-caret' -%}
+              </summary>
+              <div class="cart-drawer__note-body">
+                <label class="visually-hidden" for="CartNote">
+                  {{ 'sections.cart.note' | t }}
+                </label>
+                <textarea
+                  class="cart-drawer__note-input field__input"
+                  id="CartNote"
+                  name="note"
+                  placeholder="{{ 'sections.cart.note_placeholder' | t }}"
+                  rows="3"
+                  form="CartDrawerForm"
+                >{{ cart.note }}</textarea>
+              </div>
+            </details>
+          </div>
+        {%- endif -%}
+
+      {%- else -%}
+
+        {%- comment %} ── EMPTY STATE ── {%- endcomment %}
+        <div class="cart-drawer__empty" id="CartDrawerEmpty">
+          <div class="cart-drawer__empty-inner">
+            <span class="cart-drawer__empty-icon" aria-hidden="true">
+              {%- render 'icon-cart' -%}
+            </span>
+            <h3 class="cart-drawer__empty-heading">
+              {{ 'sections.cart.empty' | t }}
+            </h3>
+            <p class="cart-drawer__empty-text">
+              {{ section.settings.empty_cart_text | default: "Looks like you haven't added anything yet." | escape }}
+            </p>
+            <a
+              href="{{ section.settings.empty_cart_button_url | default: routes.all_products_collection_url }}"
+              class="button button--primary"
+            >
+              {{ section.settings.empty_cart_button_label | default: 'Continue Shopping' | escape }}
+            </a>
+          </div>
+        </div>
+
+      {%- endif -%}
+
+    </div>
+    {%- comment %} END .cart-drawer__body {%- endcomment %}
+
+    {%- comment %} ── FOOTER ── {%- endcomment %}
+    {%- if cart.item_count > 0 -%}
+      <div class="cart-drawer__footer" id="CartDrawerFooter">
+
+        {%- comment %} Subtotal {%- endcomment %}
+        <div class="cart-drawer__subtotal">
+          <span class="cart-drawer__subtotal-label">
+            {{ 'sections.cart.subtotal' | t }}
+          </span>
+          <span
+            class="cart-drawer__subtotal-price"
+            id="CartSubtotal"
+            aria-live="polite"
+          >
+            {{ cart.total_price | money_with_currency }}
+          </span>
+        </div>
+
+        {%- comment %} Tax / Shipping note {%- endcomment %}
+        {%- if cart.taxes_included and shop.shipping_policy.body != blank -%}
+          <p class="cart-drawer__tax-note rte">
+            {{ 'sections.cart.taxes_and_shipping_policy_at_checkout_html' | t: link: shop.shipping_policy.url }}
+          </p>
+        {%- elsif cart.taxes_included -%}
+          <p class="cart-drawer__tax-note">{{ 'sections.cart.taxes_included_shipping_at_checkout' | t }}</p>
+        {%- elsif shop.shipping_policy.body != blank -%}
+          <p class="cart-drawer__tax-note rte">
+            {{ 'sections.cart.taxes_and_shipping_policy_at_checkout_html' | t: link: shop.shipping_policy.url }}
+          </p>
+        {%- else -%}
+          <p class="cart-drawer__tax-note">{{ 'sections.cart.taxes_shipping_at_checkout' | t }}</p>
+        {%- endif -%}
+
+        {%- comment %} Checkout Button {%- endcomment %}
+        <button
+          type="submit"
+          id="CartCheckoutBtn"
+          class="cart-drawer__checkout button button--primary button--full-width"
+          form="CartDrawerForm"
+          name="checkout"
+          {% if cart.item_count == 0 %}disabled{% endif %}
+        >
+          {{ 'sections.cart.checkout' | t }}
+          <span class="visually-hidden">— {{ 'sections.cart.item_count' | t: count: cart.item_count }}</span>
+        </button>
+
+        {%- if additional_checkout_buttons -%}
+          <div class="cart-drawer__dynamic-buttons">
+            {{ content_for_additional_checkout_buttons }}
+          </div>
+        {%- endif -%}
+
+      </div>
+    {%- endif -%}
+
+    {%- comment %} Error Toast {%- endcomment %}
+    <div
+      class="cart-drawer__error"
+      id="CartDrawerError"
+      role="alert"
+      aria-live="assertive"
+      hidden
+    >
+      <p class="cart-drawer__error-msg" id="CartDrawerErrorMsg"></p>
+      <button class="cart-drawer__error-close" type="button" aria-label="{{ 'accessibility.close' | t }}">
+        {%- render 'icon-close' -%}
+      </button>
+    </div>
+
+  </div>
+  {%- comment %} END .cart-drawer__panel {%- endcomment %}
+
+</cart-drawer>
+
+<script src="{{ 'cart-drawer.js' | asset_url }}" defer="defer"></script>
+
+{% schema %}
+{
+  "name": "t:sections.cart-drawer.name",
+  "tag": "section",
+  "class": "section-cart-drawer",
+  "limit": 1,
+  "settings": [
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "t:sections.all.color_scheme.label",
+      "default": "scheme-1"
+    },
+    {
+      "type": "header",
+      "content": "t:sections.cart-drawer.settings.header_shipping.content"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_free_shipping_bar",
+      "label": "t:sections.cart-drawer.settings.show_free_shipping_bar.label",
+      "default": true
+    },
+    {
+      "type": "number",
+      "id": "free_shipping_threshold",
+      "label": "t:sections.cart-drawer.settings.free_shipping_threshold.label",
+      "info": "t:sections.cart-drawer.settings.free_shipping_threshold.info",
+      "default": 50
+    },
+    {
+      "type": "header",
+      "content": "t:sections.cart-drawer.settings.header_upsell.content"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_upsell",
+      "label": "t:sections.cart-drawer.settings.show_upsell.label",
+      "default": true
+    },
+    {
+      "type": "collection",
+      "id": "upsell_collection",
+      "label": "t:sections.cart-drawer.settings.upsell_collection.label"
+    },
+    {
+      "type": "text",
+      "id": "upsell_heading",
+      "label": "t:sections.cart-drawer.settings.upsell_heading.label",
+      "default": "You might also like"
+    },
+    {
+      "type": "range",
+      "id": "upsell_count",
+      "min": 1,
+      "max": 4,
+      "step": 1,
+      "default": 3,
+      "label": "t:sections.cart-drawer.settings.upsell_count.label"
+    },
+    {
+      "type": "header",
+      "content": "t:sections.cart-drawer.settings.header_extras.content"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_cart_note",
+      "label": "t:sections.cart-drawer.settings.show_cart_note.label",
+      "default": true
+    },
+    {
+      "type": "header",
+      "content": "t:sections.cart-drawer.settings.header_empty.content"
+    },
+    {
+      "type": "text",
+      "id": "empty_cart_text",
+      "label": "t:sections.cart-drawer.settings.empty_cart_text.label",
+      "default": "Looks like you haven't added anything yet."
+    },
+    {
+      "type": "text",
+      "id": "empty_cart_button_label",
+      "label": "t:sections.cart-drawer.settings.empty_cart_button_label.label",
+      "default": "Continue Shopping"
+    },
+    {
+      "type": "url",
+      "id": "empty_cart_button_url",
+      "label": "t:sections.cart-drawer.settings.empty_cart_button_url.label"
+    }
+  ]
+}
+{% endschema %}
