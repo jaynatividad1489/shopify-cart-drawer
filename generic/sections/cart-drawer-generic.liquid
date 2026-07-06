@@ -1,0 +1,291 @@
+{% comment %}
+  Section: Cart Drawer
+  Version: Generic / Standalone (Non-Dawn)
+  Author: John Venedick Natividad
+  GitHub: https://github.com/jaynatividad1489
+
+  This version is standalone — works on ANY Shopify theme.
+  No dependency on Dawn's CSS classes or component patterns.
+  All styles are self-contained in cart-drawer-generic.css
+  All JS is self-contained in cart-drawer-generic.js
+
+  Features:
+  - Slide-in cart drawer from right
+  - AJAX add/update/remove (no page reload)
+  - Quantity +/- with debounce
+  - Remove with undo toast
+  - Free shipping progress bar
+  - Upsell product recommendations
+  - Cart note field
+  - Empty cart state with CTA
+  - Per-item loading states
+  - Error handling (out of stock, rate limits, network)
+  - Focus trap + ARIA
+  - Mobile responsive
+  - Touch/swipe to close
+{% endcomment %}
+
+{{ 'cart-drawer-generic.css' | asset_url | stylesheet_tag }}
+
+<div
+  id="CartDrawerGeneric"
+  class="cdg"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Shopping Cart"
+  aria-hidden="true"
+  data-free-shipping="{{ section.settings.free_shipping_threshold | times: 100 }}"
+  data-currency="{{ cart.currency.iso_code }}"
+>
+
+  <div class="cdg__overlay" id="CdgOverlay"></div>
+
+  <div class="cdg__panel" id="CdgPanel" tabindex="-1">
+
+    <!-- HEADER -->
+    <div class="cdg__header">
+      <h2 class="cdg__title">
+        Cart
+        <span class="cdg__count" id="CdgCount">({{ cart.item_count }})</span>
+      </h2>
+      <button class="cdg__close" id="CdgClose" type="button" aria-label="Close cart">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M1 1L17 17M17 1L1 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- FREE SHIPPING BAR -->
+    {%- if section.settings.show_free_shipping_bar and section.settings.free_shipping_threshold > 0 -%}
+      {%- assign threshold_cents = section.settings.free_shipping_threshold | times: 100 -%}
+      {%- assign progress = cart.total_price | times: 100 | divided_by: threshold_cents -%}
+      {%- if progress > 100 -%}{%- assign progress = 100 -%}{%- endif -%}
+
+      <div class="cdg__shipping" id="CdgShipping" aria-live="polite">
+        <p class="cdg__shipping-msg {% if cart.total_price >= threshold_cents %}cdg__shipping-msg--done{% endif %}" id="CdgShippingMsg">
+          {%- if cart.total_price >= threshold_cents -%}
+            🎉 You've unlocked free shipping!
+          {%- else -%}
+            Spend {{ threshold_cents | minus: cart.total_price | money }} more for free shipping
+          {%- endif -%}
+        </p>
+        <div class="cdg__shipping-track" role="progressbar" aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100">
+          <div class="cdg__shipping-fill" id="CdgShippingFill" style="width:{{ progress }}%"></div>
+        </div>
+      </div>
+    {%- endif -%}
+
+    <!-- BODY -->
+    <div class="cdg__body" id="CdgBody" aria-live="polite">
+
+      {%- if cart.item_count > 0 -%}
+        <form action="{{ routes.cart_url }}" id="CdgForm" method="post" novalidate>
+          <ul class="cdg__items" id="CdgItems" role="list">
+            {%- for item in cart.items -%}
+              <li class="cdg__item" id="CdgItem-{{ forloop.index }}" data-index="{{ forloop.index }}" data-key="{{ item.key }}">
+
+                <div class="cdg__item-loading" id="CdgItemLoading-{{ forloop.index }}" hidden>
+                  <div class="cdg__spinner"><div></div><div></div><div></div><div></div></div>
+                </div>
+
+                <div class="cdg__item-img-wrap">
+                  {%- if item.image -%}
+                    {{ item.image | image_url: width: 120 | image_tag: loading: 'lazy', alt: item.image.alt, class: 'cdg__item-img' }}
+                  {%- else -%}
+                    {{ 'product-1' | placeholder_svg_tag: 'cdg__item-placeholder' }}
+                  {%- endif -%}
+                </div>
+
+                <div class="cdg__item-info">
+                  <a href="{{ item.url }}" class="cdg__item-title">{{ item.product.title | escape }}</a>
+                  {%- unless item.product.has_only_default_variant -%}
+                    <p class="cdg__item-variant">{{ item.variant.title | escape }}</p>
+                  {%- endunless -%}
+                  {%- if item.selling_plan_allocation -%}
+                    <p class="cdg__item-plan">{{ item.selling_plan_allocation.selling_plan.name | escape }}</p>
+                  {%- endif -%}
+
+                  <div class="cdg__item-row">
+                    <div class="cdg__qty" id="CdgQty-{{ forloop.index }}">
+                      <button class="cdg__qty-btn" type="button" data-action="decrease" data-index="{{ forloop.index }}" data-key="{{ item.key }}" aria-label="Decrease quantity">
+                        <svg width="10" height="2" viewBox="0 0 10 2" fill="none"><rect width="10" height="2" rx="1" fill="currentColor"/></svg>
+                      </button>
+                      <input class="cdg__qty-input" type="number" value="{{ item.quantity }}" min="0" data-index="{{ forloop.index }}" data-key="{{ item.key }}" aria-label="Quantity" id="CdgQtyInput-{{ forloop.index }}">
+                      <button class="cdg__qty-btn" type="button" data-action="increase" data-index="{{ forloop.index }}" data-key="{{ item.key }}" aria-label="Increase quantity">
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="4" width="2" height="10" rx="1" fill="currentColor"/><rect y="4" width="10" height="2" rx="1" fill="currentColor"/></svg>
+                      </button>
+                    </div>
+
+                    <div class="cdg__item-price">
+                      {%- if item.original_line_price != item.final_line_price -%}
+                        <s class="cdg__price-compare">{{ item.original_line_price | money }}</s>
+                        <span class="cdg__price-sale">{{ item.final_line_price | money }}</span>
+                      {%- else -%}
+                        <span class="cdg__price">{{ item.final_line_price | money }}</span>
+                      {%- endif -%}
+                    </div>
+                  </div>
+
+                  <button class="cdg__remove" type="button" data-action="remove" data-index="{{ forloop.index }}" data-key="{{ item.key }}">Remove</button>
+                </div>
+
+              </li>
+            {%- endfor -%}
+          </ul>
+        </form>
+
+        {%- if section.settings.show_upsell and section.settings.upsell_collection != blank -%}
+          {%- assign upsell_col = collections[section.settings.upsell_collection] -%}
+          {%- assign cart_ids = cart.items | map: 'product_id' -%}
+          {%- assign upsell_count = 0 -%}
+          {%- for product in upsell_col.products -%}
+            {%- unless cart_ids contains product.id -%}
+              {%- if upsell_count == 0 -%}
+                <div class="cdg__upsell" id="CdgUpsell">
+                  <p class="cdg__upsell-label">{{ section.settings.upsell_heading | default: 'You might also like' }}</p>
+                  <div class="cdg__upsell-list">
+              {%- endif -%}
+              {%- if upsell_count < section.settings.upsell_count -%}
+                <div class="cdg__upsell-card" id="CdgUpsell-{{ product.id }}" data-product-id="{{ product.id }}">
+                  <a href="{{ product.url }}" class="cdg__upsell-img-wrap" tabindex="-1" aria-hidden="true">
+                    {%- if product.featured_media -%}
+                      {{ product.featured_media | image_url: width: 120 | image_tag: loading: 'lazy', alt: product.title, class: 'cdg__upsell-img' }}
+                    {%- endif -%}
+                  </a>
+                  <div class="cdg__upsell-info">
+                    <a href="{{ product.url }}" class="cdg__upsell-title">{{ product.title | truncate: 36 }}</a>
+                    <p class="cdg__upsell-price">{{ product.price | money }}</p>
+                    {%- if product.variants.size == 1 -%}
+                      <button class="cdg__upsell-add" type="button" data-variant-id="{{ product.variants.first.id }}" data-product-id="{{ product.id }}">Add</button>
+                    {%- else -%}
+                      <a href="{{ product.url }}" class="cdg__upsell-add">Options</a>
+                    {%- endif -%}
+                  </div>
+                </div>
+                {%- assign upsell_count = upsell_count | plus: 1 -%}
+              {%- endif -%}
+            {%- endunless -%}
+          {%- endfor -%}
+          {%- if upsell_count > 0 -%}
+              </div>
+            </div>
+          {%- endif -%}
+        {%- endif -%}
+
+        {%- if section.settings.show_cart_note -%}
+          <div class="cdg__note">
+            <details>
+              <summary class="cdg__note-toggle">Add a note</summary>
+              <textarea class="cdg__note-input" name="note" placeholder="Special instructions..." form="CdgForm" rows="3">{{ cart.note }}</textarea>
+            </details>
+          </div>
+        {%- endif -%}
+
+      {%- else -%}
+        <div class="cdg__empty" id="CdgEmpty">
+          <svg class="cdg__empty-icon" width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" stroke="currentColor" stroke-width="1.5"/><line x1="3" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="1.5"/><path d="M16 10a4 4 0 01-8 0" stroke="currentColor" stroke-width="1.5"/></svg>
+          <h3 class="cdg__empty-title">Your cart is empty</h3>
+          <p class="cdg__empty-text">{{ section.settings.empty_cart_text | default: "Add some items to get started." }}</p>
+          <a href="{{ section.settings.empty_cart_button_url | default: routes.all_products_collection_url }}" class="cdg__btn cdg__btn--primary">
+            {{ section.settings.empty_cart_button_label | default: 'Continue Shopping' }}
+          </a>
+        </div>
+      {%- endif -%}
+
+    </div>
+
+    <!-- FOOTER -->
+    {%- if cart.item_count > 0 -%}
+      <div class="cdg__footer" id="CdgFooter">
+        <div class="cdg__subtotal">
+          <span class="cdg__subtotal-label">Subtotal</span>
+          <span class="cdg__subtotal-price" id="CdgSubtotal">{{ cart.total_price | money_with_currency }}</span>
+        </div>
+        <p class="cdg__tax-note">Taxes and shipping calculated at checkout</p>
+        <button class="cdg__btn cdg__btn--primary cdg__checkout" id="CdgCheckout" type="submit" form="CdgForm" name="checkout">
+          Checkout
+        </button>
+        {%- if additional_checkout_buttons -%}
+          <div class="cdg__dynamic-btns">{{ content_for_additional_checkout_buttons }}</div>
+        {%- endif -%}
+      </div>
+    {%- endif -%}
+
+    <!-- ERROR -->
+    <div class="cdg__error" id="CdgError" role="alert" aria-live="assertive" hidden>
+      <p class="cdg__error-text" id="CdgErrorText"></p>
+      <button class="cdg__error-close" type="button" aria-label="Close error">✕</button>
+    </div>
+
+  </div>
+</div>
+
+<script src="{{ 'cart-drawer-generic.js' | asset_url }}" defer="defer"></script>
+
+{% schema %}
+{
+  "name": "Cart Drawer (Generic)",
+  "tag": "section",
+  "limit": 1,
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "show_free_shipping_bar",
+      "label": "Show Free Shipping Bar",
+      "default": true
+    },
+    {
+      "type": "number",
+      "id": "free_shipping_threshold",
+      "label": "Free Shipping Threshold ($)",
+      "default": 50
+    },
+    {
+      "type": "checkbox",
+      "id": "show_upsell",
+      "label": "Show Upsell Products",
+      "default": true
+    },
+    {
+      "type": "collection",
+      "id": "upsell_collection",
+      "label": "Upsell Collection"
+    },
+    {
+      "type": "text",
+      "id": "upsell_heading",
+      "label": "Upsell Heading",
+      "default": "You might also like"
+    },
+    {
+      "type": "range",
+      "id": "upsell_count",
+      "min": 1, "max": 4, "step": 1, "default": 3,
+      "label": "Number of Upsell Products"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_cart_note",
+      "label": "Show Cart Note",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "empty_cart_text",
+      "label": "Empty Cart Message",
+      "default": "Add some items to get started."
+    },
+    {
+      "type": "text",
+      "id": "empty_cart_button_label",
+      "label": "Empty Cart Button Label",
+      "default": "Continue Shopping"
+    },
+    {
+      "type": "url",
+      "id": "empty_cart_button_url",
+      "label": "Empty Cart Button URL"
+    }
+  ]
+}
+{% endschema %}
