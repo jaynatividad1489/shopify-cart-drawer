@@ -1,0 +1,189 @@
+{% comment %}
+  Snippet: cart-drawer-product
+  Version: Dawn Edition
+  Compatible with: Shopify Dawn Theme (v14+)
+  Author: John Venedick Natividad
+
+  Params:
+    item  {CartItem} — Shopify cart line item object
+    index {Number}   — Loop index (1-based)
+{% endcomment %}
+
+<li
+  class="cart-drawer__item"
+  id="CartItem-{{ index }}"
+  data-index="{{ index }}"
+  data-key="{{ item.key }}"
+>
+
+  {%- comment %} Loading Overlay per item {%- endcomment %}
+  <div class="cart-drawer__item-loading" id="CartItemLoading-{{ index }}" aria-hidden="true" hidden>
+    <div class="loading-overlay__spinner">
+      <svg aria-hidden="true" focusable="false" class="spinner" viewBox="0 0 66 66" xmlns="http://www.w3.org/2000/svg">
+        <circle class="path" fill="none" stroke-width="6" cx="33" cy="33" r="30"></circle>
+      </svg>
+    </div>
+  </div>
+
+  {%- comment %} Product Image {%- endcomment %}
+  <div class="cart-drawer__item-image media media--square">
+    {%- if item.image -%}
+      {{
+        item.image
+        | image_url: width: 120
+        | image_tag:
+          loading: 'lazy',
+          widths: '60, 120',
+          sizes: '60px',
+          alt: item.image.alt | escape,
+          class: 'cart-drawer__item-img'
+      }}
+    {%- else -%}
+      {{ 'product-1' | placeholder_svg_tag: 'cart-drawer__item-placeholder' }}
+    {%- endif -%}
+  </div>
+
+  {%- comment %} Product Info {%- endcomment %}
+  <div class="cart-drawer__item-details">
+
+    {%- comment %} Vendor {%- endcomment %}
+    {%- if item.product.vendor != blank -%}
+      <p class="cart-drawer__item-vendor caption">{{ item.product.vendor | escape }}</p>
+    {%- endif -%}
+
+    {%- comment %} Title {%- endcomment %}
+    <a
+      href="{{ item.url }}"
+      class="cart-drawer__item-title full-unstyled-link"
+    >
+      {{ item.product.title | escape }}
+    </a>
+
+    {%- comment %} Variant {%- endcomment %}
+    {%- if item.product.has_only_default_variant == false -%}
+      <p class="cart-drawer__item-variant caption">
+        {{ item.variant.title | escape }}
+      </p>
+    {%- endif -%}
+
+    {%- comment %} Selling Plan {%- endcomment %}
+    {%- if item.selling_plan_allocation != nil -%}
+      <p class="cart-drawer__item-plan caption">
+        {{ item.selling_plan_allocation.selling_plan.name | escape }}
+      </p>
+    {%- endif -%}
+
+    {%- comment %} Line Item Properties {%- endcomment %}
+    {%- if item.properties.size > 0 -%}
+      <ul class="cart-drawer__item-properties" role="list">
+        {%- for property in item.properties -%}
+          {%- assign property_first_char = property.first | slice: 0 -%}
+          {%- if property.last != blank and property_first_char != '_' -%}
+            <li class="caption">
+              <span class="cart-drawer__item-property-key">{{ property.first }}:</span>
+              <span class="cart-drawer__item-property-val">
+                {%- if property.last contains '/uploads/' -%}
+                  <a href="{{ property.last }}" class="link" target="_blank">
+                    {{ property.last | split: '/' | last }}
+                  </a>
+                {%- else -%}
+                  {{ property.last }}
+                {%- endif -%}
+              </span>
+            </li>
+          {%- endif -%}
+        {%- endfor -%}
+      </ul>
+    {%- endif -%}
+
+    {%- comment %} Discounts {%- endcomment %}
+    {%- if item.discounts.size > 0 -%}
+      <ul class="cart-drawer__item-discounts" role="list" aria-label="{{ 'customer.order.discount' | t }}">
+        {%- for discount in item.discounts -%}
+          <li class="cart-drawer__item-discount caption">
+            {%- render 'icon-discount' -%}
+            {{ discount.title | escape }}
+          </li>
+        {%- endfor -%}
+      </ul>
+    {%- endif -%}
+
+    {%- comment %} Price + Quantity Row {%- endcomment %}
+    <div class="cart-drawer__item-bottom">
+
+      {%- comment %} Quantity Controls {%- endcomment %}
+      <div
+        class="cart-drawer__qty"
+        id="CartQty-{{ index }}"
+      >
+        <button
+          class="cart-drawer__qty-btn cart-drawer__qty-btn--minus"
+          type="button"
+          aria-label="{{ 'sections.cart.remove_title' | t: title: item.title }}"
+          data-index="{{ index }}"
+          data-key="{{ item.key }}"
+          data-action="decrease"
+          {% if item.quantity <= 1 %}data-remove="true"{% endif %}
+        >
+          {%- render 'icon-minus' -%}
+        </button>
+
+        <input
+          class="cart-drawer__qty-input"
+          type="number"
+          name="updates[]"
+          value="{{ item.quantity }}"
+          min="0"
+          max="{{ item.variant.inventory_quantity | default: 9999 }}"
+          aria-label="{{ 'sections.cart.item_quantity' | t }}"
+          data-index="{{ index }}"
+          data-key="{{ item.key }}"
+          id="CartQtyInput-{{ index }}"
+        >
+
+        <button
+          class="cart-drawer__qty-btn cart-drawer__qty-btn--plus"
+          type="button"
+          aria-label="{{ 'sections.cart.add_title' | t: title: item.title }}"
+          data-index="{{ index }}"
+          data-key="{{ item.key }}"
+          data-action="increase"
+          {% if item.variant.inventory_management and item.quantity >= item.variant.inventory_quantity %}
+            disabled
+            aria-disabled="true"
+          {% endif %}
+        >
+          {%- render 'icon-plus' -%}
+        </button>
+      </div>
+
+      {%- comment %} Price {%- endcomment %}
+      <div class="cart-drawer__item-price price {% if item.original_line_price != item.final_line_price %}price--on-sale{% endif %}">
+        {%- if item.original_line_price != item.final_line_price -%}
+          <span class="visually-hidden">{{ 'products.product.price.sale_price' | t }}</span>
+          <span class="price__sale">{{ item.final_line_price | money }}</span>
+          <span class="visually-hidden">{{ 'products.product.price.regular_price' | t }}</span>
+          <s class="price__compare">{{ item.original_line_price | money }}</s>
+        {%- else -%}
+          <span>{{ item.final_line_price | money }}</span>
+        {%- endif -%}
+      </div>
+
+    </div>
+
+    {%- comment %} Remove Button {%- endcomment %}
+    <button
+      class="cart-drawer__item-remove button button--tertiary"
+      type="button"
+      aria-label="{{ 'sections.cart.remove_title' | t: title: item.title | escape }}"
+      data-index="{{ index }}"
+      data-key="{{ item.key }}"
+      data-action="remove"
+    >
+      {{ 'sections.cart.remove' | t }}
+    </button>
+
+  </div>
+  {%- comment %} END .cart-drawer__item-details {%- endcomment %}
+
+</li>
