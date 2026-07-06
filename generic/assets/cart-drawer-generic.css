@@ -1,0 +1,516 @@
+/* ==========================================================================
+   Cart Drawer — Generic / Standalone Version
+   Works on ANY Shopify theme — no Dawn dependency
+   Author: John Venedick Natividad
+   GitHub: https://github.com/jaynatividad1489
+   ========================================================================== */
+
+/* ── Design Tokens (customize these for any theme) ── */
+:root {
+  --cdg-bg:          #ffffff;
+  --cdg-text:        #1a1a1a;
+  --cdg-text-muted:  #6b7280;
+  --cdg-border:      #e5e7eb;
+  --cdg-accent:      #1a1a1a;
+  --cdg-accent-text: #ffffff;
+  --cdg-sale:        #dc2626;
+  --cdg-success:     #16a34a;
+  --cdg-error-bg:    #fef2f2;
+  --cdg-error-text:  #991b1b;
+  --cdg-error-border:#fca5a5;
+  --cdg-radius:      0.6rem;
+  --cdg-font:        inherit;
+  --cdg-width:       42rem;
+  --cdg-z:           9999;
+}
+
+/* ── Overlay ── */
+.cdg__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: var(--cdg-z);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.cdg__overlay.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ── Panel ── */
+.cdg__panel {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: 100%;
+  max-width: var(--cdg-width);
+  z-index: calc(var(--cdg-z) + 1);
+  background: var(--cdg-bg);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94);
+  box-shadow: -4px 0 24px rgba(0,0,0,0.12);
+  font-family: var(--cdg-font);
+  color: var(--cdg-text);
+  overflow: hidden;
+}
+
+.cdg__panel.is-open { transform: translateX(0); }
+
+body.cdg-open { overflow: hidden; }
+
+/* ── Header ── */
+.cdg__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2rem 2.4rem;
+  border-bottom: 1px solid var(--cdg-border);
+  flex-shrink: 0;
+}
+
+.cdg__title {
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.cdg__count {
+  font-size: 1.4rem;
+  font-weight: 400;
+  color: var(--cdg-text-muted);
+}
+
+.cdg__close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.8rem;
+  color: var(--cdg-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+.cdg__close:hover { background: rgba(0,0,0,0.06); }
+
+/* ── Shipping Bar ── */
+.cdg__shipping {
+  padding: 1.2rem 2.4rem;
+  border-bottom: 1px solid var(--cdg-border);
+  flex-shrink: 0;
+}
+
+.cdg__shipping-msg {
+  font-size: 1.3rem;
+  color: var(--cdg-text-muted);
+  margin: 0 0 0.8rem;
+  text-align: center;
+}
+
+.cdg__shipping-msg--done { color: var(--cdg-success); font-weight: 600; }
+
+.cdg__shipping-track {
+  height: 4px;
+  background: var(--cdg-border);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.cdg__shipping-fill {
+  height: 100%;
+  background: var(--cdg-success);
+  border-radius: 9999px;
+  transition: width 0.5s ease;
+}
+
+/* ── Body ── */
+.cdg__body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Items ── */
+.cdg__items { list-style: none; margin: 0; padding: 0; }
+
+.cdg__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: 1.6rem;
+  padding: 2rem 2.4rem;
+  border-bottom: 1px solid var(--cdg-border);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.cdg__item--loading  { opacity: 0.5; pointer-events: none; }
+.cdg__item--out      { opacity: 0; transform: translateX(2rem); }
+
+/* Per-item loader */
+.cdg__item-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.7);
+  z-index: 2;
+}
+
+/* CSS Spinner (no Dawn dependency) */
+.cdg__spinner {
+  display: inline-block;
+  position: relative;
+  width: 32px;
+  height: 32px;
+}
+
+.cdg__spinner div {
+  box-sizing: border-box;
+  display: block;
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  margin: 4px;
+  border: 3px solid var(--cdg-accent);
+  border-radius: 50%;
+  animation: cdg-spin 1.2s cubic-bezier(0.5,0,0.5,1) infinite;
+  border-color: var(--cdg-accent) transparent transparent transparent;
+}
+
+.cdg__spinner div:nth-child(1) { animation-delay: -0.45s; }
+.cdg__spinner div:nth-child(2) { animation-delay: -0.3s;  }
+.cdg__spinner div:nth-child(3) { animation-delay: -0.15s; }
+
+@keyframes cdg-spin {
+  0%   { transform: rotate(0deg);   }
+  100% { transform: rotate(360deg); }
+}
+
+/* Image */
+.cdg__item-img-wrap {
+  width: 8rem;
+  height: 8rem;
+  border-radius: var(--cdg-radius);
+  overflow: hidden;
+  background: #f3f4f6;
+  flex-shrink: 0;
+}
+
+.cdg__item-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Info */
+.cdg__item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.cdg__item-title {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--cdg-text);
+  text-decoration: none;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.cdg__item-variant,
+.cdg__item-plan {
+  font-size: 1.2rem;
+  color: var(--cdg-text-muted);
+  margin: 0;
+}
+
+.cdg__item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 0.8rem;
+  gap: 1rem;
+}
+
+/* Qty controls */
+.cdg__qty {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--cdg-border);
+  border-radius: var(--cdg-radius);
+  overflow: hidden;
+  height: 3.4rem;
+}
+
+.cdg__qty-btn {
+  width: 3rem;
+  height: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cdg-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.cdg__qty-btn:hover    { background: rgba(0,0,0,0.05); }
+.cdg__qty-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.cdg__qty-input {
+  width: 3.6rem;
+  height: 100%;
+  border: none;
+  border-left: 1px solid var(--cdg-border);
+  border-right: 1px solid var(--cdg-border);
+  text-align: center;
+  font-size: 1.4rem;
+  font-family: var(--cdg-font);
+  color: var(--cdg-text);
+  background: transparent;
+  -moz-appearance: textfield;
+}
+
+.cdg__qty-input::-webkit-outer-spin-button,
+.cdg__qty-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+/* Prices */
+.cdg__item-price { font-size: 1.4rem; font-weight: 600; text-align: right; }
+.cdg__price-compare { font-size: 1.2rem; color: var(--cdg-text-muted); text-decoration: line-through; display: block; }
+.cdg__price-sale { color: var(--cdg-sale); display: block; }
+.cdg__price { display: block; }
+
+.cdg__remove {
+  background: none; border: none; cursor: pointer; padding: 0;
+  font-size: 1.2rem; color: var(--cdg-text-muted);
+  text-decoration: underline; text-underline-offset: 2px;
+  align-self: flex-start; margin-top: 0.4rem;
+}
+
+.cdg__remove:hover { color: var(--cdg-text); }
+
+/* ── Upsell ── */
+.cdg__upsell {
+  padding: 1.6rem 2.4rem;
+  border-top: 1px solid var(--cdg-border);
+  background: rgba(0,0,0,0.02);
+}
+
+.cdg__upsell-label {
+  font-size: 1.1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--cdg-text-muted);
+  margin: 0 0 1.2rem;
+}
+
+.cdg__upsell-list { display: flex; flex-direction: column; gap: 1rem; }
+
+.cdg__upsell-card {
+  display: grid;
+  grid-template-columns: 5.6rem 1fr;
+  gap: 1.2rem;
+  align-items: center;
+  background: var(--cdg-bg);
+  border: 1px solid var(--cdg-border);
+  border-radius: var(--cdg-radius);
+  padding: 1rem;
+  transition: opacity 0.3s ease;
+}
+
+.cdg__upsell-img-wrap {
+  width: 5.6rem;
+  height: 5.6rem;
+  border-radius: calc(var(--cdg-radius) - 2px);
+  overflow: hidden;
+  background: #f3f4f6;
+  display: block;
+}
+
+.cdg__upsell-img { width: 100%; height: 100%; object-fit: cover; }
+
+.cdg__upsell-info { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+
+.cdg__upsell-title {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--cdg-text);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cdg__upsell-price { font-size: 1.3rem; margin: 0; }
+
+.cdg__upsell-add {
+  padding: 0.5rem 1rem;
+  font-size: 1.2rem;
+  background: var(--cdg-accent);
+  color: var(--cdg-accent-text);
+  border: none;
+  border-radius: calc(var(--cdg-radius) - 2px);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  align-self: flex-start;
+  transition: opacity 0.2s;
+}
+
+.cdg__upsell-add:hover    { opacity: 0.85; }
+.cdg__upsell-add:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Note ── */
+.cdg__note {
+  padding: 1.4rem 2.4rem;
+  border-top: 1px solid var(--cdg-border);
+}
+
+.cdg__note-toggle {
+  cursor: pointer; font-size: 1.4rem; font-weight: 500;
+  list-style: none; color: var(--cdg-text);
+}
+
+.cdg__note-toggle::-webkit-details-marker { display: none; }
+
+.cdg__note-input {
+  width: 100%; margin-top: 1rem; padding: 1rem 1.2rem;
+  font-family: var(--cdg-font); font-size: 1.4rem;
+  color: var(--cdg-text); border: 1px solid var(--cdg-border);
+  border-radius: var(--cdg-radius); resize: vertical; min-height: 8rem;
+  box-sizing: border-box;
+}
+
+.cdg__note-input:focus {
+  outline: 2px solid rgba(0,0,0,0.3);
+  outline-offset: 2px;
+}
+
+/* ── Empty ── */
+.cdg__empty {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 1.6rem; padding: 4rem 2.4rem;
+  min-height: 30rem; text-align: center;
+}
+
+.cdg__empty-icon { color: #d1d5db; }
+.cdg__empty-title { font-size: 1.8rem; font-weight: 700; margin: 0; }
+.cdg__empty-text { font-size: 1.4rem; color: var(--cdg-text-muted); margin: 0; }
+
+/* ── Footer ── */
+.cdg__footer {
+  border-top: 1px solid var(--cdg-border);
+  padding: 2rem 2.4rem;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.cdg__subtotal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cdg__subtotal-label { font-size: 1.4rem; font-weight: 600; }
+.cdg__subtotal-price { font-size: 1.6rem; font-weight: 700; }
+.cdg__tax-note { font-size: 1.2rem; color: var(--cdg-text-muted); margin: 0; text-align: center; }
+
+.cdg__dynamic-btns { display: flex; flex-direction: column; gap: 0.8rem; }
+
+/* ── Buttons ── */
+.cdg__btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 1.2rem 2rem; font-size: 1.4rem; font-weight: 600;
+  border-radius: var(--cdg-radius); border: 2px solid transparent;
+  cursor: pointer; text-decoration: none; transition: opacity 0.2s, transform 0.15s;
+  font-family: var(--cdg-font);
+}
+
+.cdg__btn:hover  { opacity: 0.85; }
+.cdg__btn:active { transform: scale(0.98); }
+.cdg__btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.cdg__btn--primary {
+  background: var(--cdg-accent);
+  color: var(--cdg-accent-text);
+}
+
+.cdg__checkout { width: 100%; }
+
+/* ── Error ── */
+.cdg__error {
+  position: absolute; bottom: 2rem; left: 1.6rem; right: 1.6rem;
+  background: var(--cdg-error-bg); border: 1px solid var(--cdg-error-border);
+  border-radius: var(--cdg-radius); padding: 1.2rem 1.6rem;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; z-index: 10; animation: cdg-slideUp 0.3s ease;
+}
+
+.cdg__error-text { font-size: 1.3rem; color: var(--cdg-error-text); margin: 0; }
+
+.cdg__error-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--cdg-error-text); font-size: 1.4rem; padding: 0;
+}
+
+/* ── Undo Toast ── */
+.cdg__undo-toast {
+  position: absolute; bottom: 8rem; left: 50%;
+  transform: translateX(-50%) translateY(1rem);
+  background: var(--cdg-text); color: var(--cdg-bg);
+  border-radius: 9999px; padding: 1rem 2rem;
+  font-size: 1.3rem; display: flex; align-items: center;
+  gap: 1.2rem; white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease; z-index: 10;
+}
+
+.cdg__undo-toast.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.cdg__undo-btn {
+  background: none; border: none; cursor: pointer;
+  color: inherit; font-weight: 700; text-decoration: underline;
+  font-size: 1.3rem; padding: 0;
+}
+
+/* ── Animations ── */
+@keyframes cdg-slideUp {
+  from { transform: translateY(1rem); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+/* ── Responsive ── */
+@media (max-width: 749px) {
+  .cdg__panel { max-width: 100%; }
+}
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .cdg__panel, .cdg__overlay, .cdg__item,
+  .cdg__shipping-fill, .cdg__undo-toast,
+  .cdg__spinner div { transition: none; animation: none; }
+}
