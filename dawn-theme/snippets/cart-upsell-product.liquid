@@ -1,0 +1,84 @@
+{% comment %}
+  Snippet: cart-upsell-product
+  Version: Dawn Edition
+  Compatible with: Shopify Dawn Theme (v14+)
+  Author: John Venedick Natividad
+
+  Params:
+    product {Product} — Shopify product object
+{% endcomment %}
+
+<div
+  class="cart-upsell__card"
+  id="UpsellCard-{{ product.id }}"
+  data-product-id="{{ product.id }}"
+>
+
+  {%- comment %} Product Image {%- endcomment %}
+  <a
+    href="{{ product.url }}"
+    class="cart-upsell__image-link media media--square"
+    tabindex="-1"
+    aria-hidden="true"
+  >
+    {%- if product.featured_media -%}
+      {{
+        product.featured_media
+        | image_url: width: 160
+        | image_tag:
+          loading: 'lazy',
+          widths: '80, 160',
+          sizes: '80px',
+          alt: product.featured_media.alt | escape,
+          class: 'cart-upsell__image'
+      }}
+    {%- else -%}
+      {{ 'product-1' | placeholder_svg_tag: 'cart-upsell__placeholder' }}
+    {%- endif -%}
+  </a>
+
+  {%- comment %} Product Info {%- endcomment %}
+  <div class="cart-upsell__info">
+
+    <a href="{{ product.url }}" class="cart-upsell__title full-unstyled-link">
+      {{ product.title | truncate: 40 | escape }}
+    </a>
+
+    <div class="cart-upsell__price price {% if product.compare_at_price > product.price %}price--on-sale{% endif %}">
+      {%- if product.compare_at_price > product.price -%}
+        <span class="price__sale">{{ product.price | money }}</span>
+        <s class="price__compare">{{ product.compare_at_price | money }}</s>
+      {%- else -%}
+        <span class="price__regular">{{ product.price | money }}</span>
+      {%- endif -%}
+    </div>
+
+    {%- comment %} Quick Add to Cart {%- endcomment %}
+    {%- if product.variants.size == 1 -%}
+      <button
+        class="cart-upsell__add button button--secondary"
+        type="button"
+        data-product-id="{{ product.id }}"
+        data-variant-id="{{ product.variants.first.id }}"
+        aria-label="{{ 'sections.cart.add_to_cart' | t | default: 'Add' }} {{ product.title | escape }}"
+      >
+        <span class="cart-upsell__add-label">{{ 'sections.cart.add' | t | default: 'Add' }}</span>
+        <div class="loading-overlay__spinner hidden" aria-hidden="true">
+          <svg focusable="false" class="spinner" viewBox="0 0 66 66" xmlns="http://www.w3.org/2000/svg">
+            <circle class="path" fill="none" stroke-width="6" cx="33" cy="33" r="30"></circle>
+          </svg>
+        </div>
+      </button>
+    {%- else -%}
+      <a
+        href="{{ product.url }}"
+        class="cart-upsell__add button button--secondary"
+        aria-label="{{ 'products.product.choose_options' | t }} {{ product.title | escape }}"
+      >
+        {{ 'products.product.choose_options' | t | default: 'Options' }}
+      </a>
+    {%- endif -%}
+
+  </div>
+
+</div>
